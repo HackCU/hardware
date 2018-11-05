@@ -3,8 +3,15 @@ from hardware import views
 
 
 urlpatterns = [
-    url(r'^list/$', views.HardwareListView.as_view(), name='hw_list'),
-    url(r'^admin/$', views.HardwareAdminView.as_view(), name='hw_admin'),
-    url(r'^borrowings/$', views.HardwareBorrowingsView.as_view(), name='hw_borrowings'),
-    url(r'^requests/$', views.HardwareAdminRequestsView.as_view(), name='hw_requests')
+    url(r'^$', views.root_view, name='hw_root'),
+    url(r'^list/$', views.HardwareAvailableView.as_view(), name='hw_list'),
+    url(r'^request/$', views.HackerCurrentRequestView.as_view(), name='hw_request'),
+    url(r'^active/$', views.HackerCurrentActiveView.as_view(), name='hw_active'),
+    url(r'^list/amount$', views.HardwareSelectAmountView.as_view(), name='hw_selectamount'),
+    url(r'^hacker/$', views.HardwarePickUpReturnView.as_view(), name='hw_pickupreturn'),
+    url(r'^all/$', views.HardwareAvailableAdmin.as_view(), name='hw_listall'),
+    url(r'^active/all/$', views.HardwareActiveAdmin.as_view(), name='hw_active'),
+    url(r'^hacker/(?P<id>[\w-]+)/return/$', views.HackerReturnView.as_view(), name='hw_return'),
+    url(r'^hacker/(?P<id>[\w-]+)/pickup/$', views.HackerPickupView.as_view(), name='hw_pickup'),
+    url(r'^hacker/(?P<id>[\w-]+)/$', views.RequestsHistoricView.as_view(), name='hw_requestor'),
 ]

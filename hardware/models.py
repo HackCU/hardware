@@ -1,12 +1,15 @@
 from datetime import timedelta
 
-from app import hackathon_variables
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
+
 from user.models import User
 
 
-class ItemType(models.Model):
+class HardwareType(models.Model):
     """Represents a kind of hardware"""
 
     # Human readable name
@@ -15,157 +18,116 @@ class ItemType(models.Model):
     image = models.FileField(upload_to='hw_images/')
     # Description of this hardware
     # what is it used for? which items are contained in the package?
-    description = models.TextField()
+    description = models.CharField(max_length=200)
 
-    def get_borrowable_items(self):
-        """ Get items not borrowed already """
-        availables = Item.objects.filter(item_type=self, available=True)
-        borrowings = Borrowing.objects.filter(item__item_type=self, return_time__isnull=True)
-        return availables.exclude(id__in=[x.item.id for x in borrowings])
+    # Number of items available for this type
+    total_count = models.IntegerField(verbose_name='Items available')
 
-    def get_available_count(self):
-        ava_count = Item.objects.filter(item_type=self, available=True).count()
-        req_count = self.get_requested_count()
-        borrowed_count = self.get_borrowed_count()
-        return ava_count - req_count - borrowed_count
+    @classmethod
+    def prefetch_objects(cls):
+        return cls.objects.prefetch_related('requests')
 
-    def get_requested_count(self):
-        return Request.objects.get_active_by_item_type(self).count()
+    @property
+    def not_available_count(self):
+        time_expired = timezone.now() - timedelta(minutes=settings.HARDWARE_REQUEST_TIME)
+        return self.requests.filter(Q(pickup_time__isnull=False, return_time__isnull=True) |
+                                    Q(created_at__gte=time_expired, pickup_time__isnull=True)).count()
 
-    def get_borrowed_count(self):
-        return Borrowing.objects.get_active_by_item_type(self).count()
+    @property
+    def active_count(self):
+        return self.requests.filter(pickup_time__isnull=False, return_time__isnull=True).count()
 
-    def get_unavailable_count(self):
-        return Item.objects.filter(item_type=self, available=False).count()
-
-    def make_request(self, user):
-        req = Request(item_type=self, user=user)
-        req.save()
-
-    def __str__(self):
-        return self.name
+    @property
+    def remaining_count(self):
+        return self.total_count - self.active_count
 
 
-class Item(models.Model):
-    """Represents a real world object identified by label"""
+    @property
+    def available_count(self):
+        return self.total_count - self.not_available_count
 
-    # Hardware model/type
-    item_type = models.ForeignKey(ItemType)
-    # Identifies a real world object
-    label = models.CharField(max_length=20, unique=True)
-    # Is the item available?
-    available = models.BooleanField(default=True)
-    # Any other relevant information about this item
-    comments = models.TextField(blank=True, null=True)
+    def request(self, user):
+        if self.available_count == 0:
+            return None
 
-    def can_be_borrowed(self):
-        return Borrowing.objects.filter(return_time__isnull=True, item=self).count() == 0
-
-    def __str__(self):
-        return '{} ({})'.format(self.label, self.item_type.name)
-
-
-class BorrowingQuerySet(models.QuerySet):
-    def get_active(self):
-        return self.filter(return_time__isnull=True)
-
-    def get_returned(self):
-        return self.filter(return_time__isnull=False)
-
-    def get_active_by_item_type(self, item_type):
-        return self.filter(return_time__isnull=True, item__item_type=item_type)
-
-    def get_active_by_user(self, user):
-        return self.filter(return_time__isnull=True, user=user)
-
-
-class Borrowing(models.Model):
-    """
-    The 'item' has been borrowed to the 'user'
-    """
-    objects = BorrowingQuerySet.as_manager()
-
-    user = models.ForeignKey(User)
-    item = models.ForeignKey(Item)
-    # Instant of creation
-    picked_up_time = models.DateTimeField(auto_now_add=True)
-    # If null: item has not been returned yet
-    return_time = models.DateTimeField(null=True, blank=True)
-
-    # Borrowing handled by
-    borrowing_by = models.ForeignKey(User, related_name='hardware_admin_borrowing')
-    # Return handled by (null until returned)
-    return_by = models.ForeignKey(User, related_name='hardware_admin_return', null=True, blank=True)
-
-    def get_picked_up_time_ago(self):
-        return str(timezone.now() - self.picked_up_time)
-
-    def get_return_time_ago(self):
-        return str(timezone.now() - self.return_time)
-
-    def is_active(self):
-        return self.return_time is None
-
-    def __str__(self):
-        return '{} ({})'.format(self.item.item_type.name, self.user)
-
-
-class RequestQuerySet(models.QuerySet):
-    def get_active(self):
-        delta = timedelta(minutes=hackathon_variables.HARDWARE_REQUEST_TIME)
-        threshold = timezone.now() - delta
-        return self.filter(borrowing__isnull=True, request_time__gte=threshold)
-
-    def get_borrowed(self):
-        return self.filter(borrowing__isnull=False)
-
-    def get_expired(self):
-        delta = timedelta(minutes=hackathon_variables.HARDWARE_REQUEST_TIME)
-        threshold = timezone.now() - delta
-        return self.filter(borrowing__isnull=True, request_time__lt=threshold)
-
-    def get_active_by_user(self, user):
-        delta = timedelta(minutes=hackathon_variables.HARDWARE_REQUEST_TIME)
-        threshold = timezone.now() - delta
-        return self.filter(borrowing__isnull=True, request_time__gte=threshold, user=user)
-
-    def get_active_by_item_type(self, item_type):
-        delta = timedelta(minutes=hackathon_variables.HARDWARE_REQUEST_TIME)
-        threshold = timezone.now() - delta
-        return self.filter(borrowing__isnull=True, request_time__gte=threshold, item_type=item_type)
+        r = Request(requestor=user, type=self)
+        r.save()
+        return r
 
 
 class Request(models.Model):
     """
-    Represents reservation of an item
-    of type 'item_type' done by 'user'
+    The 'item' has been borrowed to the 'user'
     """
+    # User requesting hardware
+    requestor = models.ForeignKey(User)
 
-    objects = RequestQuerySet.as_manager()
+    # Type for this request
+    type = models.ForeignKey(HardwareType, related_name='requests')
 
-    # Requested item type
-    item_type = models.ForeignKey(ItemType)
-    # Hacker that made the request
-    user = models.ForeignKey(User)
-    # Borrowing derived from this request
-    borrowing = models.ForeignKey(Borrowing, null=True, blank=True)
     # Instant of creation
-    request_time = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
-    def is_active(self):
-        delta = timedelta(minutes=hackathon_variables.HARDWARE_REQUEST_TIME)
-        remaining = delta - (timezone.now() - self.request_time)
-        return not self.borrowing and remaining.total_seconds() > 0
+    # If null: item has not been picked up yet
+    pickup_time = models.DateTimeField(null=True, blank=True)
 
-    def get_remaining_time(self):
-        delta = timedelta(minutes=hackathon_variables.HARDWARE_REQUEST_TIME)
-        remaining = delta - (timezone.now() - self.request_time)
-        if self.borrowing:
-            return "Borrowed"
-        elif remaining.total_seconds() < 0:
-            return "Expired"
-        else:
-            return str(remaining)
+    # If null: item has not been returned yet
+    return_time = models.DateTimeField(null=True, blank=True)
 
-    def __str__(self):
-        return '{} ({})'.format(self.item_type, self.user)
+    # Organizer who gave out item
+    borrowed_by = models.ForeignKey(User, null=True, blank=True, related_name='hardware_admin_borrowing')
+
+    # Organizer who received back out item
+    returned_to = models.ForeignKey(User, related_name='hardware_admin_return', null=True, blank=True)
+
+    @classmethod
+    def pending_objects(cls, user_id):
+        time_expired = timezone.now() - timedelta(minutes=settings.HARDWARE_REQUEST_TIME)
+        return cls.objects.filter(requestor_id=user_id, created_at__gte=time_expired, pickup_time__isnull=True)
+
+    @classmethod
+    def historic_objects(cls, user_id):
+        time_expired = timezone.now() - timedelta(minutes=settings.HARDWARE_REQUEST_TIME)
+        return cls.objects.filter(Q(requestor_id=user_id, created_at__gte=time_expired, pickup_time__isnull=True)
+                                  | Q(requestor_id=user_id, pickup_time__isnull=False))
+
+    @classmethod
+    def active_objects(cls, user_id):
+        return cls.objects.filter(requestor_id=user_id, pickup_time__isnull=False, return_time__isnull=True)
+
+    @classmethod
+    def active_overall(cls):
+        return cls.objects.filter(pickup_time__isnull=False, return_time__isnull=True)
+
+    @property
+    def remaining_time(self):
+        if self.pickup_time:
+            return timedelta(seconds=0)
+        return (self.created_at + timedelta(minutes=settings.HARDWARE_REQUEST_TIME)) - timezone.now()
+
+    def pickup(self, organizer):
+        if self.pickup_time:
+            raise ValidationError('Request has been picked up already!')
+        if self.remaining_time < timedelta(seconds=0):
+            raise ValidationError('Request has expired!')
+        if self.type.remaining_count <= 0:
+            raise ValidationError('No items available')
+
+        self.borrowed_by = organizer
+        self.pickup_time = timezone.now()
+        self.save()
+
+    def return_(self, organizer):
+        if not self.pickup_time and self.remaining_time > 0:
+            raise ValidationError('Request has not been picked up yet')
+
+        self.returned_to = organizer
+        self.return_time = timezone.now()
+        self.save()
+
+    def cancel(self):
+        if self.remaining_time < 0:
+            raise ValidationError('Item has expired')
+        if self.pickup_time:
+            raise ValidationError('Item has been picked up')
+        self.delete()

@@ -1,0 +1,23 @@
+
+
+<span id="{{ record.pk }}"></span>
+<script>
+
+    function timeRemaining(seconds) {
+        if (seconds < 0) seconds = 0;
+        const orig = seconds;
+        const minutes = Math.floor(seconds / 60);
+        seconds %= 60;
+        return ""
+            + minutes + (minutes == 1 ? " minute " : " minutes ")
+            + seconds + (seconds == 1 ? " second" : " seconds")
+    }
+    var secondsTillHack = {{record.remaining_time.seconds}} + {{record.remaining_time.days}} * 3600 * 24;
+    document.getElementById("{{ record.pk }}").textContent = timeRemaining(secondsTillHack);
+    setInterval(function () {
+        secondsTillHack--;
+        document.getElementById("{{ record.pk }}").textContent =
+            timeRemaining(secondsTillHack);
+    }, 1000);
+</script>
+

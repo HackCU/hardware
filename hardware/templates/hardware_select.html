@@ -1,0 +1,14 @@
+{% extends "base_table.html" %}
+{% load django_tables2 %}
+{% block head_title %}{% endblock %}
+{% block extra_panel %}
+<p>Select amounts you want to request for each item.</p>
+{% endblock %}
+
+{% block table_footer %}
+    <div class="panel-footer">
+        <button name="invite" class="btn btn-success btn-block"
+                value="invite">Request hardware
+        </button>
+    </div>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base_table.html" %}
+
+{% block head_title %}Return hardware {% endblock %}
+
+
+{% block table_title %}Return hardware{% endblock %}
+
+
+{% block extra_panel %}
+    <p>Items currently in possession by {{ user.name }}. Make sure to <b>return</b> the government ID
+        if returning all items. <b>Check if any device has been damaged</b> before accepting return.</p>
+{% endblock %}
+
+{% block table_footer %}
+    <div class="panel-footer">
+        <button name="invite" class="btn btn-success btn-block"
+                value="invite">Return
+        </button>
+    </div>
+{% endblock %}

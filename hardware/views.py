@@ -1,284 +1,241 @@
-from app import hackathon_variables
-from app.mixins import TabsViewMixin
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core import serializers
-from django.http import JsonResponse, HttpResponse
-from django.template.loader import render_to_string
+from django.core.exceptions import ValidationError
+from django.http import HttpResponseRedirect
 from django.urls import reverse
-from django.utils import timezone
 from django.views.generic import TemplateView
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin
+
+from app.mixins import TabsViewMixin
+from hardware.models import Request, HardwareType
+from hardware.tables import RequestorTable, RequestorFilter, PickupTable, ReturnTable, RequestsTable, \
+    AvailableHardwareTable, SelectCountHardwareTable, HackerRequests, HackerActive, HackerAvailableHardwareTable, \
+    ActiveHardwareTable, HardwareTypeFilter, RequestFilter
 from user.mixins import IsHardwareAdminMixin
 from user.models import User
 
-from hardware.models import Item, ItemType, Borrowing, Request
-from hardware.tables import BorrowingTable, BorrowingFilter, RequestTable, RequestFilter
 
-
-def hardware_tabs(user):
-    if user.is_hardware_admin or user.is_organizer:
-        return [
-            ('Hardware Admin', reverse('hw_admin'), False),
-            ('Requests', reverse('hw_requests'), False),
-            ('Borrowings', reverse('hw_borrowings'), False)
-        ]
+def root_view(request):
+    user = request.user
+    if user.is_organizer or user.is_hardware_admin or user.is_director:
+        return HttpResponseRedirect(reverse('hw_pickupreturn'))
     else:
-        return [
-            ('Hardware List', reverse('hw_list'), False),
-            ('Borrowings', reverse('hw_borrowings'), False)
-        ]
+        return HttpResponseRedirect(reverse('hw_list'))
 
 
-class HardwareAdminRequestsView(TabsViewMixin, IsHardwareAdminMixin,
-                                SingleTableMixin, FilterView):
+def hardware_admin_tabs():
+    return [
+        ('Pick up/Return', reverse('hw_pickupreturn'), False),
+        ('Available', reverse('hw_listall'), False),
+        ('Active', reverse('hw_active'), False),
+    ]
+
+
+def hardware_hacker_tabs(user):
+    l = [
+        ('Available', reverse('hw_list'), False),
+    ]
+    count = Request.pending_objects(user).count()
+    if count:
+        l.append(('Requested', reverse('hw_request'), count), )
+    active = Request.active_objects(user).count()
+    if active:
+        l.append(('Active', reverse('hw_active'), active), )
+    return l
+
+
+# Admin views
+
+class HardwarePickUpReturnView(TabsViewMixin, IsHardwareAdminMixin, SingleTableMixin, FilterView):
     template_name = 'hardware_requests.html'
-    table_class = RequestTable
+    table_class = RequestorTable
+    table_pagination = {'per_page': 50}
+    filterset_class = RequestorFilter
+
+    def get_current_tabs(self):
+        return hardware_admin_tabs()
+
+    def get_queryset(self):
+        return User.objects.filter(application__checkin__isnull=False)
+
+
+class HackerPickupView(TabsViewMixin, IsHardwareAdminMixin, SingleTableMixin, TemplateView):
+    template_name = 'hwadmin_pickup.html'
+    table_class = PickupTable
+    table_pagination = {'per_page': 50}
+
+    def get_back_url(self):
+        return reverse('hw_pickupreturn')
+
+    def get_queryset(self):
+        return Request.pending_objects(user_id=self.kwargs['id']).all()
+
+    def get_context_data(self, **kwargs):
+        c = super(HackerPickupView, self).get_context_data(**kwargs)
+        c['user'] = User.objects.get(pk=self.kwargs['id'])
+        return c
+
+    def post(self, request, *args, **kwargs):
+        selected = self.request.POST.getlist('selected')
+        hws = Request.objects.filter(pk__in=selected)
+        errors = {}
+        for hw in hws:
+            try:
+                hw.pickup(request.user)
+            except ValidationError as e:
+                errors[hw.type.name] = ' '.join(e.messages)
+        if errors.keys():
+            messages.error(request,
+                           'Failed to pick up: ' + ', '.join([str(k) + ':' + str(v) for k, v in errors.items()])
+                           )
+        return HttpResponseRedirect(reverse('hw_requestor', kwargs=self.kwargs))
+
+
+class HackerReturnView(TabsViewMixin, IsHardwareAdminMixin, SingleTableMixin, TemplateView):
+    template_name = 'hwadmin_return.html'
+    table_class = ReturnTable
+    table_pagination = {'per_page': 50}
+
+    def get_back_url(self):
+        return reverse('hw_pickupreturn')
+
+    def get_context_data(self, **kwargs):
+        c = super(HackerReturnView, self).get_context_data(**kwargs)
+        c['user'] = User.objects.get(pk=self.kwargs['id'])
+        return c
+
+    def get_queryset(self):
+        return Request.active_objects(user_id=self.kwargs['id']).all()
+
+    def post(self, request, *args, **kwargs):
+        selected = self.request.POST.getlist('selected')
+        hws = Request.objects.filter(pk__in=selected)
+        errors = {}
+        for hw in hws:
+            try:
+                hw.return_(request.user)
+            except ValidationError as e:
+                errors[hw.type.name] = ' '.join(e.messages)
+        if errors.keys():
+            messages.error(request,
+                           'Failed to return: ' + ', '.join([str(k) + ':' + str(v) for k, v in errors.items()]))
+        return HttpResponseRedirect(reverse('hw_requestor', kwargs=self.kwargs))
+
+
+class RequestsHistoricView(TabsViewMixin, IsHardwareAdminMixin, SingleTableMixin, TemplateView):
+    template_name = 'hacker_historic_view.html'
+    table_class = RequestsTable
+    table_pagination = {'per_page': 50}
+
+    def get_back_url(self):
+        return reverse('hw_pickupreturn')
+
+    def get_context_data(self, **kwargs):
+        c = super(RequestsHistoricView, self).get_context_data(**kwargs)
+        c['user'] = User.objects.get(pk=self.kwargs['id'])
+        return c
+
+    def get_queryset(self):
+        return Request.historic_objects(self.kwargs['id']).all()
+
+
+class HardwareAvailableAdmin(TabsViewMixin, IsHardwareAdminMixin, SingleTableMixin, FilterView):
+    template_name = 'hardware_all.html'
+    table_class = AvailableHardwareTable
+    table_pagination = {'per_page': 50}
+    filterset_class = HardwareTypeFilter
+
+    def get_current_tabs(self):
+        return hardware_admin_tabs()
+
+    def get_queryset(self):
+        return HardwareType.prefetch_objects().all()
+
+
+class HardwareActiveAdmin(TabsViewMixin, IsHardwareAdminMixin, SingleTableMixin, FilterView):
+    template_name = 'hwadmin_active.html'
+    table_class = ActiveHardwareTable
     table_pagination = {'per_page': 50}
     filterset_class = RequestFilter
 
     def get_current_tabs(self):
-        return hardware_tabs(self.request.user)
+        return hardware_admin_tabs()
 
     def get_queryset(self):
-        return Request.objects.all()
+        return Request.active_overall().all()
 
 
-class HardwareBorrowingsView(TabsViewMixin, SingleTableMixin, FilterView):
-    template_name = 'hardware_borrowings.html'
-    table_class = BorrowingTable
+# Hacker views
+
+class HardwareAvailableView(TabsViewMixin, LoginRequiredMixin, SingleTableMixin, TemplateView):
+    template_name = 'hardware_available.html'
+    table_class = HackerAvailableHardwareTable
     table_pagination = {'per_page': 50}
-    filterset_class = BorrowingFilter
-
-    def get_context_data(self, **kwargs):
-        context = super(HardwareBorrowingsView, self).get_context_data(**kwargs)
-        if not self.request.user.is_hardware_admin:
-            context['filter'] = False
-            context['table'].exclude = ('id', 'user', 'lending_by', 'return_by')
-
-        return context
 
     def get_current_tabs(self):
-        return hardware_tabs(self.request.user)
+        return hardware_hacker_tabs(self.request.user)
+
+    def get_context_data(self, **kwargs):
+        c = super(HardwareAvailableView, self).get_context_data(**kwargs)
+        c['form_action'] = reverse('hw_selectamount')
+        c['form_method'] = 'get'
+        return c
 
     def get_queryset(self):
-        if self.request.user.is_hardware_admin:
-            return Borrowing.objects.all()
-        else:
-            return Borrowing.objects.get_queryset().filter(user=self.request.user)
+        hws = HardwareType.prefetch_objects().all()
+        return [h for h in hws if h.available_count > 0]
 
 
-class HardwareListView(LoginRequiredMixin, TabsViewMixin, TemplateView):
-    template_name = 'hardware_list.html'
+class HardwareSelectAmountView(TabsViewMixin, LoginRequiredMixin, SingleTableMixin, TemplateView):
+    template_name = 'hardware_select.html'
+    table_class = SelectCountHardwareTable
+    table_pagination = {'per_page': 50}
 
-    def get_current_tabs(self):
-        return hardware_tabs(self.request.user)
+    def get_back_url(self):
+        return reverse('hw_list')
 
-    def get_context_data(self, **kwargs):
-        context = super(HardwareListView, self).get_context_data(**kwargs)
-        context['hw_list'] = ItemType.objects.all()
-        requests = Request.objects.get_active_by_user(self.request.user)
-        context['requests'] = {
-            x.item_type.id: x.get_remaining_time() for x in requests
-        }
-        return context
+    def get_queryset(self):
+        selected = self.request.GET.getlist('selected')
+        hws = HardwareType.objects.filter(pk__in=selected)
+        return [h for h in hws if h.available_count > 0]
 
-    def req_item(self, request):
-        item = ItemType.objects.get(id=request.POST['item_id'])
-        if item.get_available_count() > 0:
-            item.make_request(request.user)
-            return JsonResponse({
-                'ok': True,
-                'minutes': hackathon_variables.HARDWARE_REQUEST_TIME
-            })
+    def post(self, request, *args, **kwargs):
+        ids = request.GET.getlist('selected')
+        hws = HardwareType.objects.filter(pk__in=ids)
+        errors = {}
+        for hw in hws:
+            amount = int(request.POST.get('amount_' + str(hw.pk), 0))
+            for i in range(amount):
+                if not hw.request(request.user):
+                    errors[hw.type.name] = errors.get(hw.type.name, 0) + 1
+        if errors.keys():
+            messages.error(request, 'Couldn\'t request the following items:' + ', '.join(
+                [str(k) + '(' + str(v) + ')' for k, v in errors.items()]
+            ))
 
-        return JsonResponse({'msg': "ERROR: There are no items available"})
-
-    def check_availability(self, request):
-        item_ids = request.POST['item_ids[]']
-        items = ItemType.objects.filter(id__in=item_ids)
-        available_items = []
-        for item in items:
-            if item.get_available_count() > 0:
-                available_items.append({
-                    "id": item.id,
-                    "name": item.name
-                })
-
-        return JsonResponse({
-            'available_items': available_items
-        })
-
-    def post(self, request):
-        if request.is_ajax:
-            if 'req_item' in request.POST:
-                return self.req_item(request)
-            if 'check_availability' in request.POST:
-                return self.check_availability(request)
+        return HttpResponseRedirect(reverse('hw_request'))
 
 
-class HardwareAdminView(IsHardwareAdminMixin, TabsViewMixin, TemplateView):
-    template_name = 'hardware_admin.html'
-
-    def init_and_toast(self, msg):
-        """
-        Finishes a process and goes back to the beginning while
-        showing a toast
-        """
-        html = render_to_string("include/hardware_admin_init.html", {
-            'hw_list': ItemType.objects.all(),
-        })
-        return JsonResponse({
-            'content': html,
-            'msg': msg
-        })
-
-    def get_lists(self, request):
-        """
-        When a user has a request or a borrowing we get the lists
-        to proceed
-        """
-        target_user = User.objects.filter(email=request.POST['email'])
-        if not target_user.exists():
-            # In this case we don't want to return to the initial page
-            return JsonResponse({
-                'msg': "ERROR: The user doesn't exist"
-            })
-
-        requests = Request.objects.get_active_by_user(target_user.first())
-        borrowings = Borrowing.objects.get_active_by_user(target_user.first())
-        html = render_to_string("include/hardware_admin_user.html", {
-            'requests': requests,
-            'borrowings': borrowings
-        })
-        return JsonResponse({
-            'content': html
-        })
-
-    def select_request(self, request):
-        """
-        We selected a request to process a borrowing. Then we show a list
-        with the available items of that type
-        """
-        request_obj = Request.objects.get(id=request.POST['request_id'])
-        if not request_obj.is_active():
-            return self.init_and_toast("ERROR: The request has expired")
-
-        available_items = request_obj.item_type.get_borrowable_items()
-        html = render_to_string("include/hardware_admin_borrowing.html", {
-            'items': available_items,
-            'request_id': request.POST['request_id']
-        })
-        return JsonResponse({'content': html})
-
-    def return_item(self, request):
-        """
-        We selected a borrowing to end it
-        """
-        borrowing = Borrowing.objects.get(id=request.POST['borrowing_id'])
-        if not borrowing.is_active():
-            return self.init_and_toast("ERROR: The item was not borrowed")
-
-        borrowing.return_time = timezone.now()
-        borrowing.return_by = request.user
-        borrowing.save()
-        return self.init_and_toast("The item has been returned succesfully")
-
-    def make_borrowing(self, request):
-        """
-        Once we choose the item, we can now make the borrowing
-        and finish the process
-        """
-        item = Item.objects.get(id=request.POST['item_id'])
-        if not item.can_be_borrowed():
-            return self.init_and_toast("ERROR: The item is not available")
-
-        request_obj = Request.objects.get(id=request.POST['request_id'])
-        borrowing = Borrowing(user=request_obj.user, item=item, borrowing_by=request.user)
-        borrowing.save()
-        request_obj.borrowing = borrowing
-        request_obj.save()
-        return self.init_and_toast("The item has been borrowed succesfully")
-
-    def select_type_noreq(self, request):
-        """
-        When a hacker doesn't have a request, we first select the hardware
-        """
-        item_type = ItemType.objects.get(id=request.POST['type_id'])
-        if item_type.get_available_count() <= 0:
-            return self.init_and_toast("ERROR: There are no items available")
-
-        available_items = item_type.get_borrowable_items()
-        html = render_to_string("include/hardware_admin_borrowing.html", {
-            'items': available_items,
-        })
-        return JsonResponse({'content': html})
-
-    def select_item_noreq(self, request):
-        """
-        We selected an item without request. We still need a user
-        """
-        item = Item.objects.get(id=request.POST['item_id'])
-        if not item.can_be_borrowed():
-            return self.init_and_toast("ERROR: The item is not available")
-
-        html = render_to_string("include/hardware_user_email.html", {
-            'item_id': item.id
-        })
-        return JsonResponse({
-            'content': html
-        })
-
-    def get_user_noreq(self, request):
-        """
-        We can make the borrowing without request now
-        """
-        item = Item.objects.get(id=request.POST['item_id'])
-        target_user = User.objects.filter(email=request.POST['email'])
-        if not target_user.exists():
-            # In this case we don't want to return to the initial page
-            return JsonResponse({
-                'msg': "ERROR: The user doesn't exist"
-            })
-        if not item.can_be_borrowed():
-            return self.init_and_toast("ERROR: The item is not available")
-
-        borrowing = Borrowing(user=target_user.first(), item=item, borrowing_by=request.user)
-        borrowing.save()
-        return self.init_and_toast("The item has been borrowed succesfully")
-
-    def identify_hacker(self, request):
-        """
-        Gets a list of suggestions based on the input (typeahead)
-        """
-        users = User.objects.filter(name__startswith=request.POST['query'])
-        return HttpResponse(serializers.serialize('json', list(users), fields=('name', 'email')))
-
-    def post(self, request):
-        if request.is_ajax:
-            if 'identify_hacker' in request.POST:
-                return self.identify_hacker(request)
-            if 'get_lists' in request.POST:
-                return self.get_lists(request)
-            if 'select_request' in request.POST:
-                return self.select_request(request)
-            if 'return_item' in request.POST:
-                return self.return_item(request)
-            if 'make_borrowing' in request.POST:
-                return self.make_borrowing(request)
-            if 'select_type_noreq' in request.POST:
-                return self.select_type_noreq(request)
-            if 'select_item_noreq' in request.POST:
-                return self.select_item_noreq(request)
-            if 'get_user_noreq' in request.POST:
-                return self.get_user_noreq(request)
-            if 'back' in request.POST:
-                return self.init_and_toast("")
+class HackerCurrentRequestView(TabsViewMixin, LoginRequiredMixin, SingleTableMixin, TemplateView):
+    template_name = 'hacker_current_request.html'
+    table_class = HackerRequests
+    table_pagination = {'per_page': 50}
 
     def get_current_tabs(self):
-        return hardware_tabs(self.request.user)
+        return hardware_hacker_tabs(self.request.user)
 
-    def get_context_data(self, **kwargs):
-        context = super(HardwareAdminView, self).get_context_data(**kwargs)
-        context['hw_list'] = ItemType.objects.all()
-        return context
+    def get_queryset(self):
+        return Request.pending_objects(self.request.user.pk).all()
+
+
+class HackerCurrentActiveView(TabsViewMixin, LoginRequiredMixin, SingleTableMixin, TemplateView):
+    template_name = 'hacker_active.html'
+    table_class = HackerActive
+    table_pagination = {'per_page': 50}
+
+    def get_current_tabs(self):
+        return hardware_hacker_tabs(self.request.user)
+
+    def get_queryset(self):
+        return Request.active_objects(self.request.user.pk).all()

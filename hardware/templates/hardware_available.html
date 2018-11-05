@@ -1,0 +1,14 @@
+{% extends "base_table.html" %}
+{% load django_tables2 %}
+{% block head_title %}Hardware available{% endblock %}
+{% block extra_panel %}
+<p>Select items below that you want to check out!</p>
+{% endblock %}
+
+{% block table_footer %}
+    <div class="panel-footer">
+        <button name="invite" class="btn btn-info btn-block"
+                value="invite"> Start Hardware Request
+        </button>
+    </div>
+{% endblock %}
