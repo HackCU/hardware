@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
@@ -13,7 +14,7 @@ from app.mixins import TabsViewMixin
 from hardware.models import Request, HardwareType
 from hardware.tables import RequestorTable, RequestorFilter, PickupTable, ReturnTable, RequestsTable, \
     AvailableHardwareTable, SelectCountHardwareTable, HackerRequests, HackerActive, HackerAvailableHardwareTable, \
-    ActiveHardwareTable, HardwareTypeFilter, RequestFilter
+    ActiveHardwareTable, HardwareTypeFilter, RequestFilter, HackerAvailableHardwareTableSelect
 from user.mixins import IsHardwareAdminMixin
 from user.models import User
 
@@ -67,7 +68,7 @@ class HardwarePickUpReturnView(TabsViewMixin, IsHardwareAdminMixin, SingleTableM
         return hardware_admin_tabs()
 
     def get_queryset(self):
-        return User.objects.filter(application__checkin__isnull=False)
+        return User.objects.filter(is_volunteer=False, is_director=False, is_active=True, is_organizer=False)
 
 
 class HackerPickupView(TabsViewMixin, IsHardwareAdminMixin, SingleTableMixin, TemplateView):
@@ -183,6 +184,11 @@ class HardwareAvailableView(TabsViewMixin, LoginRequiredMixin, SingleTableMixin,
     table_class = HackerAvailableHardwareTable
     table_pagination = {'per_page': 50}
 
+    def get_table_class(self):
+        if getattr(settings, 'HACKERS_CAN_REQUEST', True):
+            return HackerAvailableHardwareTableSelect
+        return HackerAvailableHardwareTable
+
     def get_current_tabs(self):
         return hardware_hacker_tabs(self.request.user)
 
@@ -211,6 +217,10 @@ class HardwareSelectAmountView(TabsViewMixin, LoginRequiredMixin, SingleTableMix
         return [h for h in hws if h.available_count > 0]
 
     def post(self, request, *args, **kwargs):
+        if not getattr(settings, 'HACKERS_CAN_REQUEST', True):
+            messages.error(request, 'Hardware lab is not available at the moment!')
+            return HttpResponseRedirect(reverse('hw_request'))
+
         ids = request.GET.getlist('selected')
         hws = HardwareType.objects.filter(pk__in=ids)
         errors = {}

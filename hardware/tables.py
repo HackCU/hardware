@@ -136,7 +136,7 @@ class ActiveHardwareTable(tables.Table):
         empty_text = 'No hardware items active at all'
 
 
-class HackerAvailableHardwareTable(tables.Table):
+class HackerAvailableHardwareTableSelect(tables.Table):
     selected = tables.CheckBoxColumn(accessor="pk", verbose_name='Select')
     available = tables.TemplateColumn(
         "{{record.available_count}}/{{record.total_count}}",
@@ -148,6 +148,17 @@ class HackerAvailableHardwareTable(tables.Table):
         template = 'django_tables2/bootstrap-responsive.html'
         fields = ['selected', 'name', 'description', 'available']
         empty_text = 'No hardware available. Check again to see when hackers requests expire'
+
+
+class HackerAvailableHardwareTable(tables.Table):
+
+
+    class Meta:
+        model = HardwareType
+        attrs = {'class': 'table table-hover'}
+        template = 'django_tables2/bootstrap-responsive.html'
+        fields = ['name', 'description', 'total_count']
+        empty_text = 'No hardware uploaded yet!'
 
 
 class SelectCountHardwareTable(tables.Table):

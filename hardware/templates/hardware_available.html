@@ -2,13 +2,15 @@
 {% load django_tables2 %}
 {% block head_title %}Hardware available{% endblock %}
 {% block extra_panel %}
-<p>Select items below that you want to check out!</p>
+<p>{% if h_hw_hacker_request %}Select items below that you want to check out!{% else %}See items available at {{ h_name }}!{% endif %}</p>
 {% endblock %}
 
 {% block table_footer %}
+    {% if h_hw_hacker_request %}
     <div class="panel-footer">
         <button name="invite" class="btn btn-info btn-block"
                 value="invite"> Start Hardware Request
         </button>
     </div>
+    {% endif %}
 {% endblock %}
