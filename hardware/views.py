@@ -32,7 +32,9 @@ def hardware_api(request):
     hws = HardwareType.prefetch_objects().all()
     ret = [{'name': hw.name, 'description': hw.description, 'total': hw.total_count, 'available': hw.available_count}
            for hw in hws]
-    return JsonResponse({'items': ret, 'update_time': timezone.now()})
+    r = JsonResponse({'items': ret, 'update_time': timezone.now()})
+    r._headers.update({'access': ('Access-Control-Allow-Origin', '*')})
+    return r
 
 
 def hardware_admin_tabs():
