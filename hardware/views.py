@@ -1,8 +1,10 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.cache import cache_page
 from django.views.generic import TemplateView
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin
@@ -22,6 +24,14 @@ def root_view(request):
         return HttpResponseRedirect(reverse('hw_pickupreturn'))
     else:
         return HttpResponseRedirect(reverse('hw_list'))
+
+
+@cache_page(60)
+def hardware_api(request):
+    hws = HardwareType.prefetch_objects().all()
+    ret = [{'name': hw.name, 'description': hw.description, 'total': hw.total_count, 'available': hw.available_count}
+           for hw in hws]
+    return JsonResponse({'items': ret, 'update_time': timezone.now()})
 
 
 def hardware_admin_tabs():

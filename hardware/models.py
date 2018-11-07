@@ -39,7 +39,6 @@ class HardwareType(models.Model):
     def remaining_count(self):
         return self.total_count - self.active_count
 
-
     @property
     def available_count(self):
         return self.total_count - self.not_available_count
