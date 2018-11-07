@@ -1,0 +1,7 @@
+{% extends "base_table.html" %}
+{% load django_tables2 %}
+{% block head_title %}{{ user.name }} historic{% endblock %}
+
+{% block extra_panel %}
+    <p>Historic of items requested/returned by {{ user.name }}.</p>
+{% endblock %}

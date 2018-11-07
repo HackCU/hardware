@@ -1,0 +1,19 @@
+{% extends "base_table.html" %}
+
+{% block head_title %}Pick up hardware {% endblock %}
+
+
+{% block table_title %}Pick up hardware{% endblock %}
+
+{% block extra_panel %}
+    <p>Current non-expired hardware requests for {{ user.name }}. Make sure to <b>obtain and check</b> a government ID
+        before giving hardware. If they have already given it, please check if it's there.</p>
+{% endblock %}
+
+{% block table_footer %}
+    <div class="panel-footer">
+        <button name="invite" class="btn btn-success btn-block"
+                value="invite">Pick up
+        </button>
+    </div>
+{% endblock %}

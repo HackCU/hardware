@@ -3,4 +3,4 @@
 __pycache__
 django_ha_hardware.egg-info
 dist/
-
+*.cpython-36.pyc
