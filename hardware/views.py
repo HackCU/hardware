@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect, JsonResponse
@@ -19,6 +20,7 @@ from user.mixins import IsHardwareAdminMixin
 from user.models import User
 
 
+@login_required
 def root_view(request):
     user = request.user
     if user.is_organizer or user.is_hardware_admin or user.is_director:
