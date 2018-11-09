@@ -21,6 +21,8 @@ class HardwareType(models.Model):
     # Number of items available for this type
     total_count = models.IntegerField(verbose_name='Items available')
 
+    url = models.URLField(null=True, blank=True)
+
     @classmethod
     def prefetch_objects(cls):
         return cls.objects.prefetch_related('requests')

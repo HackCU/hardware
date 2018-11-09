@@ -151,13 +151,16 @@ class HackerAvailableHardwareTableSelect(tables.Table):
 
 
 class HackerAvailableHardwareTable(tables.Table):
+    details = tables.TemplateColumn(
+        "{% if record.url %}<a href=\"{{record.url}}\" target=\"_blank\">Details</a>{%endif%}",
+        verbose_name='Details', accessor="available_count", orderable=True)
 
 
     class Meta:
         model = HardwareType
         attrs = {'class': 'table table-hover'}
         template = 'django_tables2/bootstrap-responsive.html'
-        fields = ['name', 'description', 'total_count']
+        fields = ['name', 'description', 'total_count', 'details']
         empty_text = 'No hardware uploaded yet!'
 
 

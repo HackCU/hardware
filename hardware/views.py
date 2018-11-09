@@ -32,7 +32,8 @@ def root_view(request):
 @cache_page(60)
 def hardware_api(request):
     hws = HardwareType.prefetch_objects().all()
-    ret = [{'name': hw.name, 'description': hw.description, 'total': hw.total_count, 'available': hw.available_count}
+    ret = [{'name': hw.name, 'description': hw.description, 'total': hw.total_count, 'url': hw.url,
+            'available': hw.available_count}
            for hw in hws]
     r = JsonResponse({'items': ret, 'update_time': timezone.now()})
     r._headers.update({'access': ('Access-Control-Allow-Origin', '*')})
