@@ -44,7 +44,7 @@ def hardware_admin_tabs():
     return [
         ('Pick up/Return', reverse('hw_pickupreturn'), False),
         ('Available', reverse('hw_listall'), False),
-        ('Active', reverse('hw_active'), False),
+        ('Active', reverse('hwad_active'), False),
     ]
 
 
